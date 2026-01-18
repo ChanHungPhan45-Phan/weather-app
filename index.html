@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liquid Weather + Moon, Tides & Radar</title>
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            --accent-color: rgba(255, 255, 255, 0.9);
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #0f0c29;
+            overflow-x: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* --- LIQUID BACKGROUND --- */
+        .background-blobs {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(45deg, #1a1a2e, #16213e);
+        }
+
+        .blob {
+            position: absolute;
+            filter: blur(80px);
+            opacity: 0.8;
+            animation: float 10s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
+        }
+
+        .blob-1 { top: 10%; left: 10%; width: 400px; height: 400px; background: #4facfe; border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; animation-duration: 12s; }
+        .blob-2 { bottom: 20%; right: 10%; width: 300px; height: 300px; background: #00f2fe; border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; animation-duration: 15s; animation-delay: -2s; }
+        .blob-3 { bottom: 10%; left: 20%; width: 250px; height: 250px; background: #667eea; border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%; animation-duration: 18s; animation-delay: -5s; }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            100% { transform: translate(50px, 50px) rotate(20deg); }
+        }
+
+        /* --- GLASS CARD --- */
+        .weather-card {
+            width: 100%;
+            max-width: 380px;
+            padding: 30px;
+            border-radius: 30px;
+            text-align: center;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+            position: relative;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .header-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .search-container {
+            flex-grow: 1;
+            display: flex;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .search-input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: white;
+            padding: 8px;
+            width: 100%;
+            font-size: 1rem;
+        }
+
+        .search-input::placeholder { color: rgba(255, 255, 255, 0.6); }
+
+        .unit-toggle {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            border-radius: 15px;
+            width: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .unit-toggle:hover { background: rgba(255, 255, 255, 0.3); }
+
+        .location-info { text-align: center; }
+        .location { font-size: 1.5rem; font-weight: 600; letter-spacing: 0.5px; }
+        .sub-location { font-size: 0.9rem; opacity: 0.7; margin-bottom: 5px; font-weight: 300; }
+        .date { font-size: 0.85rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; }
+
+        .main-weather {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .temp-box { position: relative; margin: 10px 0; }
+        .temperature {
+            font-size: 5.5rem;
+            font-weight: 200;
+            line-height: 1;
+            background: -webkit-linear-gradient(#fff, #ffffffaa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .loading-text {
+            font-size: 1.5rem; font-weight: 300; animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+
+        .condition { font-size: 1.2rem; font-weight: 400; opacity: 0.9; margin-bottom: 10px; }
+        
+        .weather-icon {
+            font-size: 4rem;
+            filter: drop-shadow(0 0 15px rgba(255,255,255,0.4));
+            animation: bounce 3s infinite ease-in-out;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .stat-item { display: flex; flex-direction: column; gap: 5px; }
+        .stat-label { font-size: 0.75rem; opacity: 0.6; }
+        .stat-value { font-size: 1rem; font-weight: 600; }
+
+        /* --- EXTRA CARDS (Moon & Tide) --- */
+        .extra-cards-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .info-card {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 20px;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            text-align: left;
+            transition: all 0.3s;
+        }
+
+        .card-details { display: flex; flex-direction: column; }
+        .card-title { font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .card-main-text { font-size: 1rem; font-weight: 600; color: var(--accent-color); }
+        .card-sub-text { font-size: 0.8rem; opacity: 0.8; }
+        .card-icon { font-size: 2.5rem; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)); }
+
+        /* --- MAP SECTION --- */
+        .map-box {
+            width: 100%;
+            height: 250px;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.3);
+            position: relative;
+        }
+        
+        iframe.radar-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            filter: contrast(1.1) saturate(1.1);
+        }
+
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    </style>
+</head>
+<body>
+
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <div class="weather-card">
+        <div class="header-row">
+            <div class="search-container">
+                <input type="text" id="city-input" class="search-input" placeholder="City (e.g. Pensacola)">
+            </div>
+            <button class="unit-toggle" id="unit-btn" onclick="toggleUnit()">°C</button>
+        </div>
+
+        <div class="location-info">
+            <div class="location" id="location-name">Liquid Weather</div>
+            <div class="sub-location" id="country-name">Enter a location</div>
+            <div class="date" id="current-date">--</div>
+        </div>
+        
+        <div class="main-weather">
+            <div class="weather-icon" id="weather-icon">☁️</div>
+            <div class="temp-box">
+                <span class="temperature" id="temp">--</span>
+            </div>
+            <div class="condition" id="condition-text">Waiting...</div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                <span class="stat-label">Wind</span>
+                <span class="stat-value" id="wind">--</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Humidity</span>
+                <span class="stat-value" id="humidity">--</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Elevation</span>
+                <span class="stat-value" id="elevation">--</span>
+            </div>
+        </div>
+
+        <div class="extra-cards-container">
+            <div class="info-card">
+                <div class="card-details">
+                    <span class="card-title">Moon Cycle</span>
+                    <span class="card-main-text" id="moon-phase">--</span>
+                    <span class="card-sub-text" id="moon-illumination">--</span>
+                </div>
+                <div class="card-icon" id="moon-icon">🌑</div>
+            </div>
+
+            <div class="info-card" id="tide-card">
+                <div class="card-details">
+                    <span class="card-title">Next Tide</span>
+                    <span class="card-main-text" id="tide-type">Loading...</span>
+                    <span class="card-sub-text" id="tide-time">Checking Marine Data</span>
+                </div>
+                <div class="card-icon">🌊</div>
+            </div>
+        </div>
+
+        <div class="map-box">
+            <iframe id="radar-frame" class="radar-frame" src=""></iframe>
+        </div>
+
+    </div>
+
+    <script>
+        // --- PREFERENCES ---
+        let isCelsius = true; // Default
+        
+        // Load preference immediately
+        const savedUnit = localStorage.getItem('weather_unit');
+        if (savedUnit !== null) {
+            isCelsius = (savedUnit === 'true');
+        }
+
+        // Apply preference to button immediately
+        document.getElementById('unit-btn').textContent = isCelsius ? "°C" : "°F";
+
+        // Global State
+        let currentLat = null; 
+        let currentLon = null;
+
+        // 1. Setup Date
+        const dateElement = document.getElementById('current-date');
+        const options = { weekday: 'long', day: 'numeric', month: 'short' };
+        dateElement.textContent = new Date().toLocaleDateString('en-US', options);
+
+        // 2. Moon Logic
+        function updateMoonPhase() {
+            const date = new Date();
+            const year = date.getFullYear();
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+
+            let c = 0, e = 0, jd = 0, b = 0;
+            let y = year, m = month;
+
+            if (m < 3) { y--; m += 12; }
+
+            ++m;
+            c = 365.25 * y;
+            e = 30.6 * m;
+            jd = c + e + day - 694039.09; 
+            jd /= 29.5305882; 
+            b = parseInt(jd); 
+            jd -= b; 
+            
+            const illumination = Math.round(Math.abs(jd - 0.5) * 2 * 100); 
+            
+            b = Math.round(jd * 8);
+            if (b >= 8) b = 0;
+
+            const moonPhases = [
+                { name: "New Moon", icon: "🌑" },
+                { name: "Waxing Crescent", icon: "🌒" },
+                { name: "First Quarter", icon: "🌓" },
+                { name: "Waxing Gibbous", icon: "🌔" },
+                { name: "Full Moon", icon: "🌕" },
+                { name: "Waning Gibbous", icon: "🌖" },
+                { name: "Last Quarter", icon: "🌗" },
+                { name: "Waning Crescent", icon: "🌘" }
+            ];
+
+            const phase = moonPhases[b];
+            document.getElementById('moon-phase').textContent = phase.name;
+            document.getElementById('moon-icon').textContent = phase.icon;
+            document.getElementById('moon-illumination').textContent = `${illumination}% Illuminated`;
+        }
+
+        // 3. Tide Logic
+        async function fetchTides(lat, lon) {
+            const typeElem = document.getElementById('tide-type');
+            const timeElem = document.getElementById('tide-time');
+            typeElem.textContent = "Scanning...";
+            timeElem.textContent = "Checking data";
+            
+            try {
+                const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&daily=tide_high,tide_low&timezone=auto`;
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (!res.ok || !data.daily || !data.daily.tide_high || data.daily.tide_high[0] === null) {
+                    throw new Error("No marine data");
+                }
+
+                const now = new Date();
+                let tides = [];
+
+                if (data.daily.tide_high) {
+                    data.daily.tide_high.forEach(t => { if(t) tides.push({ time: new Date(t), type: "High Tide" }) });
+                }
+                if (data.daily.tide_low) {
+                    data.daily.tide_low.forEach(t => { if(t) tides.push({ time: new Date(t), type: "Low Tide" }) });
+                }
+
+                tides.sort((a, b) => a.time - b.time);
+                const nextTide = tides.find(t => t.time > now);
+
+                if (nextTide) {
+                    const timeString = nextTide.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    typeElem.textContent = nextTide.type;
+                    timeElem.textContent = `at ${timeString}`;
+                } else {
+                    typeElem.textContent = "No Upcoming Data";
+                    timeElem.textContent = "Try again later";
+                }
+            } catch (error) {
+                typeElem.textContent = "No Tide Data";
+                timeElem.textContent = "Inland / Unavailable";
+            }
+        }
+
+        // 4. Map Logic
+        function updateMap(lat, lon) {
+            const mapFrame = document.getElementById('radar-frame');
+            const zoom = 10;
+            const url = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&width=400&height=250&zoom=${zoom}&level=surface&overlay=rain&product=ecmwf&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1`;
+            mapFrame.src = url;
+        }
+
+        // 5. Weather Utilities
+        function getWeatherIcon(code) {
+            const icons = {
+                0: { icon: '☀️', text: 'Clear Sky' }, 1: { icon: '🌤️', text: 'Mainly Clear' },
+                2: { icon: '⛅', text: 'Partly Cloudy' }, 3: { icon: '☁️', text: 'Overcast' },
+                45: { icon: '🌫️', text: 'Fog' }, 48: { icon: '🌫️', text: 'Fog' },
+                51: { icon: '🌦️', text: 'Drizzle' }, 53: { icon: '🌦️', text: 'Drizzle' }, 55: { icon: '🌦️', text: 'Drizzle' },
+                61: { icon: '🌧️', text: 'Rain' }, 63: { icon: '🌧️', text: 'Rain' }, 65: { icon: '🌧️', text: 'Heavy Rain' },
+                71: { icon: '🌨️', text: 'Snow' }, 73: { icon: '🌨️', text: 'Snow' }, 75: { icon: '❄️', text: 'Heavy Snow' },
+                95: { icon: '⛈️', text: 'Thunderstorm' }, 96: { icon: '⛈️', text: 'Thunderstorm' }, 99: { icon: '⛈️', text: 'Thunderstorm' }
+            };
+            return icons[code] || { icon: '❓', text: 'Unknown' };
+        }
+
+        function toggleUnit() {
+            if (currentLat === null) return;
+            isCelsius = !isCelsius;
+            const btn = document.getElementById('unit-btn');
+            btn.textContent = isCelsius ? "°C" : "°F";
+            
+            // Save Preference
+            try {
+                localStorage.setItem('weather_unit', isCelsius);
+            } catch(e) {}
+
+            fetchWeather(currentLat, currentLon);
+        }
+
+        // 6. Main Logic
+        async function searchWeather() {
+            const input = document.getElementById('city-input').value.trim();
+            if (!input) return;
+
+            document.getElementById('condition-text').textContent = "Searching...";
+            document.getElementById('temp').classList.add('loading-text');
+            document.getElementById('temp').textContent = "--";
+
+            try {
+                const safeInput = encodeURIComponent(input);
+                const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${safeInput}&count=5&language=en&format=json`;
+                
+                const geoRes = await fetch(geoUrl);
+                if (!geoRes.ok) throw new Error("Network error");
+                const geoData = await geoRes.json();
+
+                if (!geoData.results || geoData.results.length === 0) {
+                    alert(`Could not find location: "${input}"`);
+                    document.getElementById('condition-text').textContent = "Not Found";
+                    document.getElementById('temp').classList.remove('loading-text');
+                    return;
+                }
+
+                const location = geoData.results[0];
+                const locationName = location.name;
+                const countryName = location.admin1 ? `${location.admin1}, ${location.country}` : location.country;
+                const elevation = location.elevation || 0;
+
+                saveToMemory(location.latitude, location.longitude, locationName, countryName, elevation);
+                updateUIInfo(locationName, countryName, elevation);
+                await fetchWeather(location.latitude, location.longitude);
+
+            } catch (error) {
+                console.error("Search Error:", error);
+                document.getElementById('condition-text').textContent = "Error";
+                document.getElementById('temp').classList.remove('loading-text');
+            }
+        }
+
+        function saveToMemory(lat, lon, name, country, elev) {
+            try {
+                localStorage.setItem('weather_lat', lat);
+                localStorage.setItem('weather_lon', lon);
+                localStorage.setItem('weather_name', name);
+                localStorage.setItem('weather_country', country);
+                localStorage.setItem('weather_elev', elev);
+            } catch (e) {}
+        }
+
+        function updateUIInfo(name, country, elev) {
+            document.getElementById('location-name').textContent = name;
+            document.getElementById('country-name').textContent = country;
+            document.getElementById('elevation').textContent = `${elev} m`;
+        }
+
+        async function fetchWeather(lat, lon) {
+            try {
+                document.getElementById('temp').classList.add('loading-text');
+
+                fetchTides(lat, lon);
+                updateMap(lat, lon);
+
+                const unitParam = isCelsius ? "" : "&temperature_unit=fahrenheit&windspeed_unit=mph";
+                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=relative_humidity_2m${unitParam}`;
+                
+                const res = await fetch(weatherUrl);
+                if (!res.ok) throw new Error("Weather service unavailable.");
+                const data = await res.json();
+
+                const windUnit = isCelsius ? "km/h" : "mph";
+                
+                document.getElementById('temp').classList.remove('loading-text');
+                document.getElementById('temp').textContent = Math.round(data.current_weather.temperature) + "°";
+                document.getElementById('wind').textContent = `${data.current_weather.windspeed} ${windUnit}`;
+                
+                const wmoCode = data.current_weather.weathercode;
+                const info = getWeatherIcon(wmoCode);
+                document.getElementById('weather-icon').textContent = info.icon;
+                document.getElementById('condition-text').textContent = info.text;
+
+                const humidity = (data.hourly && data.hourly.relative_humidity_2m) ? data.hourly.relative_humidity_2m[0] : "--";
+                document.getElementById('humidity').textContent = `${humidity}%`;
+
+                updateMoonPhase();
+                currentLat = lat;
+                currentLon = lon;
+
+            } catch (error) {
+                console.error("Weather Fetch Error:", error);
+                document.getElementById('condition-text').textContent = "Data Unavailable";
+                document.getElementById('temp').classList.remove('loading-text');
+            }
+        }
+
+        document.getElementById('city-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') searchWeather();
+        });
+
+        function initApp() {
+            updateMoonPhase();
+
+            const savedLat = localStorage.getItem('weather_lat');
+            const savedLon = localStorage.getItem('weather_lon');
+            const savedName = localStorage.getItem('weather_name');
+            const savedCountry = localStorage.getItem('weather_country');
+            const savedElev = localStorage.getItem('weather_elev');
+
+            if (savedLat && savedLon) {
+                currentLat = savedLat;
+                currentLon = savedLon;
+                updateUIInfo(savedName, savedCountry, savedElev);
+                fetchWeather(savedLat, savedLon);
+            } else if (navigator.geolocation) {
+                document.getElementById('condition-text').textContent = "Locating...";
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        currentLat = position.coords.latitude;
+                        currentLon = position.coords.longitude;
+                        updateUIInfo("My Location", "Local Weather", 0);
+                        fetchWeather(currentLat, currentLon);
+                    },
+                    (error) => {
+                        document.getElementById('condition-text').textContent = "Search for a city";
+                    }
+                );
+            }
+        }
+
+        initApp();
+    </script>
+</body>
+</html>
